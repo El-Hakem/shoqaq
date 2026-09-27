@@ -480,15 +480,17 @@ V.settings=async()=>{const c=S.settings.company||{};
 
 /* ---------- forms per entity ---------- */
 const F={
-  owners:{title:"مالك",fields:[{k:"name",label:"الاسم",req:1},{k:"phone",label:"التليفون"},{k:"nid",label:"الرقم القومي / جواز السفر"},{k:"address",label:"العنوان"},{k:"notes",label:"ملاحظات",type:"textarea"}]},
+  owners:{title:"مالك",fields:[{k:"name",label:"الاسم",req:1},{k:"phone",label:"التليفون"},{k:"nid",label:"الرقم القومي / جواز السفر"},{k:"address",label:"العنوان"},{k:"notes",label:"ملاحظات",type:"textarea"}],adminFields:[{k:"opening_balance",label:"رصيد أول المدة",type:"number",hint:"المبلغ المستحق للمالك قبل بداية استخدام البرنامج (موجب = مستحق له)"},{k:"opening_date",label:"تاريخ رصيد أول المدة",type:"date",hint:"التاريخ الذي يبدأ منه رصيد أول المدة"}]},
   employees:{title:"موظف",fields:[{k:"name",label:"الاسم",req:1},{k:"phone",label:"التليفون"},{k:"default_pct",label:"نسبة العمولة من قيمة العقد %",type:"number",req:1,hint:"بتتطبق تلقائياً على كل عقد يعمله الموظف"},{k:"notes",label:"ملاحظات",type:"textarea"}]},
-  partners:{title:"شريك",fields:[{k:"name",label:"الاسم",req:1},{k:"phone",label:"التليفون"},{k:"notes",label:"ملاحظات",type:"textarea"}]},
+  partners:{title:"شريك",fields:[{k:"name",label:"الاسم",req:1},{k:"phone",label:"التليفون"},{k:"notes",label:"ملاحظات",type:"textarea"}],adminFields:[{k:"opening_balance",label:"رصيد أول المدة",type:"number",hint:"المبلغ المستحق للشريك قبل بداية استخدام البرنامج (موجب = مستحق له)"},{k:"opening_date",label:"تاريخ رصيد أول المدة",type:"date",hint:"التاريخ الذي يبدأ منه رصيد أول المدة"}]},
   apartments:{title:"شقة",wide:1,fields:[{k:"name",label:"اسم الشقة / الكود",req:1},{k:"address",label:"العنوان"},{k:"floor",label:"الدور"},{k:"rooms",label:"عدد الغرف",type:"number"},{k:"company_pct",label:"نسبة الشركة %",type:"number",req:1},{k:"notes",label:"ملاحظات",type:"textarea"},{k:"ownership",type:"custom"}]}
 };
 function openEntity(t,rec){const f=F[t];const P=clone((rec&&rec.ownership)||[]);
-  formModal({title:`${rec&&rec.id?"تعديل":"إضافة"} ${f.title}`,fields:f.fields,values:rec||{company_pct:20},wide:f.wide,
+  const fields=[...f.fields,...(isAdmin()&&f.adminFields?f.adminFields:[])];
+  formModal({title:`${rec&&rec.id?"تعديل":"إضافة"} ${f.title}`,fields,values:rec||{company_pct:20},wide:f.wide,
     afterRender:(m,g)=>{if(t==="apartments"){g("ownership").innerHTML=`<label class="f">الملاك ونسبهم *</label><div id="perEd"></div>`;periodsEditor(m.querySelector("#perEd"),P,"owners")}},
     onSave:async out=>{if(t==="apartments"){const e=checkPeriods(P,"owner_id");if(e)throw new Error("راجع: "+e);out.ownership=P}
+      if(out.opening_balance==null)out.opening_balance=0;
       await saveRow(t,rec&&rec.id,out)}})}
 
 function nextNo(cs){const y=new Date().getFullYear();const n=(cs||[]).filter(c=>String(c.no||"").startsWith(y+"-")).map(c=>+String(c.no).split("-")[1]||0);return `${y}-${String((n.length?Math.max(...n):0)+1).padStart(3,"0")}`}
@@ -790,6 +792,7 @@ async function boxForm(id){const b=id?await q(sb.from("cashboxes").select("*").e
     {k:"name",label:"اسم الخزنة",req:1,hint:"مثلاً: الخزنة الرئيسية، حساب البنك الأهلي"},
     {k:"user_id",label:"المستخدم المسؤول",type:"select",opts:()=>[["","— بدون (خزنة عامة / بنك) —"],...(S.L.users||[]).filter(u=>!taken.has(u.id)).map(u=>[u.id,u.name])]},
     {k:"opening_balance",label:"رصيد افتتاحي",type:"number",hint:"الفلوس اللي كانت فيها قبل ما تبدأ تستخدم البرنامج"},
+    {k:"opening_date",label:"تاريخ الرصيد الافتتاحي",type:"date",hint:"التاريخ الذي يُعتبر منه الرصيد الافتتاحي (اتركه فارغاً لو الرصيد صفر)"},
     {k:"active",label:"الحالة",type:"select",opts:()=>[["1","شغالة"],["0","موقوفة"]]},{k:"notes",label:"ملاحظات",full:1}],
     onSave:async out=>{out.active=out.active!=="0";out.opening_balance=out.opening_balance||0;await saveRow("cashboxes",id,out)}})}
 
