@@ -339,7 +339,7 @@ function table(heads,rows,foot){if(!rows.length)return `<div class="tbl-wrap"><d
 const rowBtnsLite=(t,id,more)=>`<td><div class="btns">${more}</div></td>`;
 const rowBtns=(screen,t,id,more="")=>{const b=[more];if(lvl(screen)>=3)b.push(`<button class="btn sm" data-act="edit" data-t="${t}" data-id="${id}">تعديل</button>`);if(lvl(screen)>=4)b.push(`<button class="btn sm danger" data-act="del" data-t="${t}" data-id="${id}">حذف</button>`);return `<td><div class="btns">${b.join("")}</div></td>`};
 const total=c=>r2((+c.unit_price||0)*(+c.units||0));
-function statusOf(c){const t=today();if(c.end_date<t)return ["منتهي","gray"];if(c.start_date>t)return ["قادم","warn"];return ["سارٍ",""]}
+function statusOf(c){const t=today();if(c.early_end_date)return ["منتهي مبكراً","copper"];if(c.end_date<t)return ["منتهي","gray"];if(c.start_date>t)return ["قادم","warn"];return ["سارٍ",""]}
 const cache={};
 
 /* ---------- views ---------- */
@@ -382,7 +382,7 @@ V.contracts=async()=>{
     return `<tr><td class="num">${esc(c.no)}</td><td>${esc(lname("apartments",c.apt_id))}</td><td>${esc(c.tenant_name)}</td><td><span class="chip ${cl}">${st}</span></td>
      <td>${c.rent_type==="daily"?"يومي":"شهري"} · ${esc(+c.units)}</td><td>${dStr(c.start_date)} ← ${dStr(c.end_date)}</td><td class="amt">${money(tot)}</td><td class="amt">${money(p)}</td><td class="amt ${tot-p>0.5?"neg":""}">${money(tot-p)}</td>
      <td>${c.employee_id?esc(lname("employees",c.employee_id)):"—"}${cm?` <span class="muted">${+cm.pct}%</span>`:""}</td>
-     ${rowBtnsLite("contracts",c.id,`<button class="btn sm" data-act="lease" data-id="${c.id}">العقد</button>${canPay?`<button class="btn sm" data-act="pay" data-id="${c.id}">تحصيل</button>`:""}<button class="btn sm" data-act="sched" data-id="${c.id}">الأقساط</button><button class="btn sm" data-act="cMore" data-id="${c.id}">المزيد ▾</button>`)}</tr>`});
+     ${rowBtnsLite("contracts",c.id,`<button class="btn sm" data-act="lease" data-id="${c.id}">العقد</button>${canPay?`<button class="btn sm" data-act="pay" data-id="${c.id}">تحصيل</button>`:""}<button class="btn sm" data-act="sched" data-id="${c.id}">الأقساط</button>${st==="سارٍ"&&lvl("contracts")>=3?`<button class="btn sm warn" data-act="earlyTerm" data-id="${c.id}">إنهاء مبكر</button>`:""}<button class="btn sm" data-act="cMore" data-id="${c.id}">المزيد ▾</button>`)}</tr>`});
   return `<div class="sechead"><div><h2>عقود الإيجار</h2><p class="sub">كل العقود. قيمة العقد = السعر × المدة.</p></div>${lvl("contracts")>=2?`<button class="btn primary" data-act="newContract">+ عقد جديد</button>`:""}</div>
   ${table([["رقم"],["الشقة"],["المستأجر"],["الحالة"],["النوع"],["المدة"],["القيمة","amt"],["المحصل","amt"],["الباقي","amt"],["الموظف"],[""]],rows)}`};
 
@@ -906,6 +906,66 @@ function renewContract(id){const c=(cache.contracts||[]).find(x=>x.id===id);if(!
   openContract(null,{_renew:1,apt_id:c.apt_id,tenant_id:c.tenant_id,tenant_name:c.tenant_name,tenant_nid:c.tenant_nid,tenant_phone:c.tenant_phone,tenant_nat:c.tenant_nat,
     rent_type:c.rent_type,unit_price:c.unit_price,units:c.units,deposit:c.deposit,company_pct:c.company_pct,employee_id:c.employee_id,notes:c.notes,start_date:start,end_date:end,sign_date:today()})}
 
+/* ---------- إنهاء مبكر ---------- */
+async function openEarlyTermForm(contractId){
+  const c=(cache.contracts||[]).find(x=>x.id===contractId)||await q(sb.from("contracts").select("*").eq("id",contractId).single());
+  const partners=S.L.partners||await q(sb.from("partners").select("id,name").order("name"));
+  const tot=total(c);
+  const paidRes=await paidMap();const paid=paidRes[contractId]||0;
+  const m=modal(`<div class="modal-h"><h3>إنهاء مبكر — عقد ${esc(c.no)}</h3><button class="btn sm" data-close>إغلاق</button></div>
+   <div class="tiles">
+    <div class="tile"><span class="l">بداية العقد</span><span class="v">${dStr(c.start_date)}</span></div>
+    <div class="tile"><span class="l">نهاية العقد الأصلية</span><span class="v">${dStr(c.end_date)}</span></div>
+    <div class="tile"><span class="l">قيمة العقد الكلية</span><span class="v">${money(tot)}</span></div>
+    <div class="tile"><span class="l">المحصل حتى الآن</span><span class="v">${money(paid)}</span></div>
+   </div>
+   <p class="sub">الفائض = المحصل × (الأيام الباقية ÷ كل الأيام). حصة المالك منه بتتخصم منه تلقائياً، وحصة الشركة إما بترجع للعميل وإما بتروح لشريك تختاره.</p>
+   <div class="srow" style="gap:16px;flex-direction:column">
+    <label class="f">تاريخ المغادرة الفعلي<input type="date" id="et_date" min="${c.start_date}" max="${addDays(c.end_date,-1)}" value="${today()<=addDays(c.end_date,-1)?today():addDays(c.end_date,-1)}"></label>
+    <label class="f">سبب الإنهاء المبكر<input type="text" id="et_reason" placeholder="مثلاً: سفر مفاجئ، مشكلة في الشقة…"></label>
+    <div class="f"><label>الفائض يروح فين؟</label>
+     <div class="btns" style="margin-top:6px">
+      <label><input type="radio" name="et_dest" value="refund" checked> رد للعميل</label>
+      <label><input type="radio" name="et_dest" value="partner"> لصالح شريك</label>
+     </div>
+    </div>
+    <div id="et_partner_row" style="display:none"><label class="f">الشريك<select id="et_partner"><option value="">— اختر الشريك —</option>${partners.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label></div>
+    <div id="et_calc" class="banner" style="background:var(--surface2)">اختر تاريخ المغادرة لحساب الفائض</div>
+   </div>
+   <div id="et_err" class="err"></div>
+   <div class="btns"><button class="btn primary" id="et_save">تأكيد الإنهاء المبكر</button><button class="btn" data-close>إلغاء</button></div>`,1);
+  const calcDiv=m.querySelector("#et_calc");
+  const calcSurplus=()=>{
+    const d=m.querySelector("#et_date").value;if(!d)return;
+    const start=c.start_date,end=c.end_date;
+    if(d>=end){calcDiv.textContent="التاريخ ده مش أبكر من نهاية العقد";return}
+    if(d<start){calcDiv.textContent="التاريخ قبل بداية العقد";return}
+    const totalDays=(new Date(end)-new Date(start))/86400000+1;
+    const actualDays=(new Date(d)-new Date(start))/86400000+1;
+    const surplus=r2(paid*(totalDays-actualDays)/totalDays);
+    const ownerClaw=r2(surplus*(100-(+c.company_pct||0))/100);
+    const companySurplus=r2(surplus*(+c.company_pct||0)/100);
+    calcDiv.innerHTML=`<b>الفائض الإجمالي: ${money(surplus)}</b><br>منه يتخصم من المالك: ${money(ownerClaw)} · حصة الشركة: ${money(companySurplus)}`;
+  };
+  m.querySelector("#et_date").addEventListener("input",calcSurplus);calcSurplus();
+  m.querySelectorAll("[name=et_dest]").forEach(r=>r.addEventListener("change",()=>{m.querySelector("#et_partner_row").style.display=r.value==="partner"?"":"none"}));
+  m.querySelector("#et_save").onclick=async()=>{
+    const er=m.querySelector("#et_err");er.textContent="";
+    const endDate=m.querySelector("#et_date").value;
+    const reason=m.querySelector("#et_reason").value.trim();
+    const dest=m.querySelector("[name=et_dest]:checked").value;
+    const partnerId=dest==="partner"?m.querySelector("#et_partner").value:null;
+    if(!endDate){er.textContent="اختر تاريخ المغادرة";return}
+    if(endDate>=c.end_date){er.textContent="التاريخ ده مش أبكر من نهاية العقد";return}
+    if(dest==="partner"&&!partnerId){er.textContent="اختر الشريك";return}
+    try{
+      m.querySelector("#et_save").disabled=true;
+      await q(sb.rpc("early_terminate_contract",{p_contract_id:contractId,p_end_date:endDate,p_reason:reason||null,p_refund_client:dest==="refund",p_partner_id:partnerId||null}));
+      closeModal();toast("تم الإنهاء المبكر للعقد ✔");await reloadAll();
+    }catch(e){er.textContent=errMsg(e);m.querySelector("#et_save").disabled=false}
+  };
+}
+
 /* ---------- v3: calendar ---------- */
 V.calendar=async()=>{
   const m=S.calMonth||today().slice(0,7);S.calMonth=m;const [y,mo]=m.split("-").map(Number);const n=new Date(y,mo,0).getDate();const first=`${m}-01`,last=`${m}-${pad(n)}`;
@@ -1132,6 +1192,7 @@ document.addEventListener("click",async e=>{
      ${c.tenant_phone?waBtn(c.tenant_phone,`السلام عليكم أ/ ${c.tenant_name}\n${CO().name}`,"مراسلة واتساب"):""}${lvl("contracts")>=2?`<button class="btn" data-act="renew" data-id="${id}">تجديد العقد</button>`:""}
      ${c.tenant_id?`<button class="btn" data-act="tenant" data-id="${c.tenant_id}">ملف المستأجر</button>`:""}${lvl("contracts")>=3?`<button class="btn" data-act="edit" data-t="contracts" data-id="${id}">تعديل</button>`:""}${lvl("contracts")>=4?`<button class="btn danger" data-act="del" data-t="contracts" data-id="${id}">حذف</button>`:""}</div>`)}
   else if(act==="renew"){closeModal();renewContract(id)}
+  else if(act==="earlyTerm")await openEarlyTermForm(id)
   else if(act==="handovers"){await openHandovers(id)}
   else if(act==="hoForm")await handoverForm(id,b.dataset.kind);
   else if(act==="hoPrint")await printHandover(id,b.dataset.kind);
