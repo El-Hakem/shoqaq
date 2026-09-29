@@ -925,10 +925,10 @@ async function openEarlyTermForm(contractId){
     <div id="et_calc" class="banner" style="background:var(--surface2)">اختر تاريخ المغادرة لحساب الفائض</div>
     <div id="et_dist_wrap" style="display:none">
      <p class="sub" style="margin-bottom:8px">وزّع الفائض — المجموع لازم يساوي الفائض بالظبط:</p>
-     <div class="srow" style="gap:12px;align-items:flex-end">
-      <label class="f" style="flex:1">للعميل (رد)<input type="number" id="et_client" min="0" step="0.01" value="0" style="text-align:left"></label>
-      <label class="f" style="flex:1">للمالك<input type="number" id="et_owner" min="0" step="0.01" value="0" style="text-align:left"></label>
-      <label class="f" style="flex:1">للشركة<input type="number" id="et_company" min="0" step="0.01" value="0" style="text-align:left"></label>
+     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <label class="f">للعميل (رد)<input type="number" id="et_client" min="0" step="0.01" value="0"></label>
+      <label class="f">للمالك<input type="number" id="et_owner" min="0" step="0.01" value="0"></label>
+      <label class="f">للشركة<input type="number" id="et_company" min="0" step="0.01" value="0"></label>
      </div>
      <div id="et_remain" class="banner" style="background:var(--surface2);margin-top:8px">المتبقي للتوزيع: —</div>
     </div>
@@ -944,7 +944,7 @@ async function openEarlyTermForm(contractId){
     const co=+(m.querySelector("#et_company").value)||0;
     const used=r2(cl+ow+co);
     const left=r2(currentSurplus-used);
-    remainDiv.textContent=left===0?"✅ تم توزيع الفائض كامل":`المتبقي للتوزيع: ${money(left)}`;
+    remainDiv.innerHTML=left===0?"✅ تم توزيع الفائض كامل":`المتبقي للتوزيع: ${money(left)}`;
     remainDiv.style.background=left===0?"var(--ok,#16a34a22)":"var(--surface2)";
   };
   const calcSurplus=()=>{
