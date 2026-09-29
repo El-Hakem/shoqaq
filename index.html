@@ -909,9 +909,9 @@ function renewContract(id){const c=(cache.contracts||[]).find(x=>x.id===id);if(!
 /* ---------- إنهاء مبكر ---------- */
 async function openEarlyTermForm(contractId){
   const c=(cache.contracts||[]).find(x=>x.id===contractId)||await q(sb.from("contracts").select("*").eq("id",contractId).single());
-  const partners=S.L.partners||await q(sb.from("partners").select("id,name").order("name"));
   const tot=total(c);
   const paidRes=await paidMap();const paid=paidRes[contractId]||0;
+  let currentSurplus=0;
   const m=modal(`<div class="modal-h"><h3>إنهاء مبكر — عقد ${esc(c.no)}</h3><button class="btn sm" data-close>إغلاق</button></div>
    <div class="tiles">
     <div class="tile"><span class="l">بداية العقد</span><span class="v">${dStr(c.start_date)}</span></div>
@@ -919,48 +919,77 @@ async function openEarlyTermForm(contractId){
     <div class="tile"><span class="l">قيمة العقد الكلية</span><span class="v">${money(tot)}</span></div>
     <div class="tile"><span class="l">المحصل حتى الآن</span><span class="v">${money(paid)}</span></div>
    </div>
-   <p class="sub">الفائض = المحصل × (الأيام الباقية ÷ كل الأيام). حصة المالك منه بتتخصم منه تلقائياً، وحصة الشركة إما بترجع للعميل وإما بتروح لشريك تختاره.</p>
    <div class="srow" style="gap:16px;flex-direction:column">
     <label class="f">تاريخ المغادرة الفعلي<input type="date" id="et_date" min="${c.start_date}" max="${addDays(c.end_date,-1)}" value="${today()<=addDays(c.end_date,-1)?today():addDays(c.end_date,-1)}"></label>
     <label class="f">سبب الإنهاء المبكر<input type="text" id="et_reason" placeholder="مثلاً: سفر مفاجئ، مشكلة في الشقة…"></label>
-    <div class="f"><label>الفائض يروح فين؟</label>
-     <div class="btns" style="margin-top:6px">
-      <label><input type="radio" name="et_dest" value="refund" checked> رد للعميل</label>
-      <label><input type="radio" name="et_dest" value="partner"> لصالح شريك</label>
-     </div>
-    </div>
-    <div id="et_partner_row" style="display:none"><label class="f">الشريك<select id="et_partner"><option value="">— اختر الشريك —</option>${partners.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label></div>
     <div id="et_calc" class="banner" style="background:var(--surface2)">اختر تاريخ المغادرة لحساب الفائض</div>
+    <div id="et_dist_wrap" style="display:none">
+     <p class="sub" style="margin-bottom:8px">وزّع الفائض — المجموع لازم يساوي الفائض بالظبط:</p>
+     <div class="srow" style="gap:12px;align-items:flex-end">
+      <label class="f" style="flex:1">للعميل (رد)<input type="number" id="et_client" min="0" step="0.01" value="0" style="text-align:left"></label>
+      <label class="f" style="flex:1">للمالك<input type="number" id="et_owner" min="0" step="0.01" value="0" style="text-align:left"></label>
+      <label class="f" style="flex:1">للشركة<input type="number" id="et_company" min="0" step="0.01" value="0" style="text-align:left"></label>
+     </div>
+     <div id="et_remain" class="banner" style="background:var(--surface2);margin-top:8px">المتبقي للتوزيع: —</div>
+    </div>
    </div>
    <div id="et_err" class="err"></div>
    <div class="btns"><button class="btn primary" id="et_save">تأكيد الإنهاء المبكر</button><button class="btn" data-close>إلغاء</button></div>`,1);
   const calcDiv=m.querySelector("#et_calc");
+  const distWrap=m.querySelector("#et_dist_wrap");
+  const remainDiv=m.querySelector("#et_remain");
+  const updateRemain=()=>{
+    const cl=+(m.querySelector("#et_client").value)||0;
+    const ow=+(m.querySelector("#et_owner").value)||0;
+    const co=+(m.querySelector("#et_company").value)||0;
+    const used=r2(cl+ow+co);
+    const left=r2(currentSurplus-used);
+    remainDiv.textContent=left===0?"✅ تم توزيع الفائض كامل":`المتبقي للتوزيع: ${money(left)}`;
+    remainDiv.style.background=left===0?"var(--ok,#16a34a22)":"var(--surface2)";
+  };
   const calcSurplus=()=>{
     const d=m.querySelector("#et_date").value;if(!d)return;
     const start=c.start_date,end=c.end_date;
-    if(d>=end){calcDiv.textContent="التاريخ ده مش أبكر من نهاية العقد";return}
-    if(d<start){calcDiv.textContent="التاريخ قبل بداية العقد";return}
+    if(d>=end){calcDiv.textContent="التاريخ ده مش أبكر من نهاية العقد";distWrap.style.display="none";return}
+    if(d<start){calcDiv.textContent="التاريخ قبل بداية العقد";distWrap.style.display="none";return}
     const totalDays=(new Date(end)-new Date(start))/86400000+1;
     const actualDays=(new Date(d)-new Date(start))/86400000+1;
     const surplus=r2(paid*(totalDays-actualDays)/totalDays);
-    const ownerClaw=r2(surplus*(100-(+c.company_pct||0))/100);
-    const companySurplus=r2(surplus*(+c.company_pct||0)/100);
-    calcDiv.innerHTML=`<b>الفائض الإجمالي: ${money(surplus)}</b><br>منه يتخصم من المالك: ${money(ownerClaw)} · حصة الشركة: ${money(companySurplus)}`;
+    currentSurplus=surplus;
+    if(surplus<=0){
+      calcDiv.innerHTML=`<b>لا يوجد فائض</b> — الأيام الفعلية (${actualDays}) تستنفذ كل المحصل`;
+      distWrap.style.display="none";
+    } else {
+      calcDiv.innerHTML=`<b>الفائض الإجمالي: ${money(surplus)}</b> · عن ${Math.round(totalDays-actualDays)} يوم متبقي`;
+      distWrap.style.display="";
+      // افتراضي: الكل للعميل
+      m.querySelector("#et_client").value=surplus;
+      m.querySelector("#et_owner").value=0;
+      m.querySelector("#et_company").value=0;
+      updateRemain();
+    }
   };
-  m.querySelector("#et_date").addEventListener("input",calcSurplus);calcSurplus();
-  m.querySelectorAll("[name=et_dest]").forEach(r=>r.addEventListener("change",()=>{m.querySelector("#et_partner_row").style.display=r.value==="partner"?"":"none"}));
+  m.querySelector("#et_date").addEventListener("input",calcSurplus);
+  ["#et_client","#et_owner","#et_company"].forEach(id=>m.querySelector(id).addEventListener("input",updateRemain));
+  calcSurplus();
   m.querySelector("#et_save").onclick=async()=>{
     const er=m.querySelector("#et_err");er.textContent="";
     const endDate=m.querySelector("#et_date").value;
     const reason=m.querySelector("#et_reason").value.trim();
-    const dest=m.querySelector("[name=et_dest]:checked").value;
-    const partnerId=dest==="partner"?m.querySelector("#et_partner").value:null;
     if(!endDate){er.textContent="اختر تاريخ المغادرة";return}
     if(endDate>=c.end_date){er.textContent="التاريخ ده مش أبكر من نهاية العقد";return}
-    if(dest==="partner"&&!partnerId){er.textContent="اختر الشريك";return}
+    const toClient=r2(+(m.querySelector("#et_client").value)||0);
+    const toOwner=r2(+(m.querySelector("#et_owner").value)||0);
+    const toCompany=r2(+(m.querySelector("#et_company").value)||0);
+    const totalDist=r2(toClient+toOwner+toCompany);
+    if(currentSurplus>0&&Math.abs(totalDist-currentSurplus)>0.02){
+      const diff=r2(currentSurplus-totalDist);
+      er.textContent=diff>0?`الأرقام أقل من الفائض بـ ${money(diff)}`:`الأرقام أكتر من الفائض بـ ${money(-diff)}`;
+      return;
+    }
     try{
       m.querySelector("#et_save").disabled=true;
-      await q(sb.rpc("early_terminate_contract",{p_contract_id:contractId,p_end_date:endDate,p_reason:reason||null,p_refund_client:dest==="refund",p_partner_id:partnerId||null}));
+      await q(sb.rpc("early_terminate_contract",{p_contract_id:contractId,p_end_date:endDate,p_reason:reason||null,p_to_client:toClient,p_to_owner:toOwner,p_to_company:toCompany}));
       closeModal();toast("تم الإنهاء المبكر للعقد ✔");await reloadAll();
     }catch(e){er.textContent=errMsg(e);m.querySelector("#et_save").disabled=false}
   };
