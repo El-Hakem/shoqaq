@@ -704,6 +704,22 @@ async function buildReceipt(kind,id){
 }
 async function printReceipt(kind,id){const w=window.open("","_blank");if(w)w.document.write("<p style='font-family:sans-serif;padding:20px'>جاري تحضير الإيصال…</p>");
   try{const o=await buildReceipt(kind,id);printHtml(o.title+" "+o.no,receiptHtml(o),w)}catch(e){if(w)w.close();toast(errMsg(e),1)}}
+function permitHtml(c){const co=CO();const apt=lname("apartments",c.apt_id);
+  const days=dayDiff(c.start_date,c.end_date)+(c.rent_type==="daily"?0:1);const unit=c.rent_type==="daily"?"ليلة":"يوم";
+  return `<style>@page{size:80mm 110mm;margin:3mm}body{max-width:74mm!important;margin:0 auto!important;padding:0!important;line-height:1.55!important;font-size:12px!important}
+  .pm h1{font-size:15px!important;margin:3px 0 1px!important}.pm .co{text-align:center;font-size:10px;color:#444}.pm table{width:100%;font-size:12px!important;margin-top:6px}
+  .pm td{border:0!important;border-bottom:1px dashed #888!important;padding:3px 0!important;vertical-align:top}.pm td:first-child{width:34%;color:#444;font-size:11px}.pm td b{font-size:13px}
+  .pm .sig{display:flex;gap:8px;margin-top:16px;font-size:10px}.pm .sig div{flex:1;border-top:1px solid #000;padding-top:2px;text-align:center}.pm .note{font-size:10px;color:#333;margin-top:6px;text-align:center}</style>
+  <div class="pm"><div class="co">${esc(co.name)}</div><h1>إذن استلام شقة</h1><div class="co">عقد رقم <span class="num">${esc(c.no||"")}</span> · ${dStr(today())}</div>
+  <table><tr><td>الشقة</td><td><b>${esc(apt)}</b></td></tr>
+  <tr><td>اسم العميل</td><td><b>${esc(c.tenant_name||"—")}</b></td></tr>
+  <tr><td>رقم الجواز / القومي</td><td><b class="num">${esc(c.tenant_nid||"—")}</b></td></tr>
+  <tr><td>تاريخ الدخول</td><td><b>${dStr(c.start_date)}</b></td></tr>
+  <tr><td>تاريخ الخروج</td><td><b>${dStr(c.end_date)}</b></td></tr>
+  <tr><td>المدة</td><td>${days} ${unit}${c.rent_type==="daily"?"":" (شهري)"}</td></tr></table>
+  <div class="note">للحارس: تأكد من هوية العميل عند الدخول، وذكّره بموعد الخروج قبل انتهاء المدة.</div>
+  <div class="sig"><div>توقيع الحارس</div><div>توقيع العميل</div></div></div>`}
+function printPermit(c){printHtml("إذن استلام شقة "+(c.no||""),permitHtml(c))}
 function askPrint(kind,id,label){const m=modal(`<h3>تم الحفظ ✔</h3><p>تحب تطبع ${esc(label)}؟</p><div class="btns"><button class="btn primary" id="ap">طباعة ${esc(label)}</button><button class="btn" data-close>لا، شكراً</button></div>`);
   m.querySelector("#ap").onclick=()=>{closeModal();printReceipt(kind,id)}}
 
@@ -1222,9 +1238,10 @@ document.addEventListener("click",async e=>{
   else if(act==="rcpt")printReceipt(b.dataset.kind,id);
   else if(act==="sched")await openSchedule(id);
   else if(act==="payInst"){closeModal();await openPayment(null,id);const a=$("#f_amount");if(a)a.value=b.dataset.amt}
+  else if(act==="permit"){const c=(cache.contracts||[]).find(x=>x.id===id);if(c){closeModal();printPermit(c)}}
   else if(act==="cMore"){const c=(cache.contracts||[]).find(x=>x.id===id);const canFee=flag("receive")&&lvl("fees")>=2;
     modal(`<div class="modal-h"><h3>عقد ${esc(c.no)} — ${esc(c.tenant_name)}</h3><button class="btn sm" data-close>إغلاق</button></div><div class="actgrid">
-     ${canFee?`<button class="btn" data-act="feeFor" data-id="${id}">تحصيل رسوم</button>`:""}<button class="btn" data-act="deposits" data-id="${id}">التأمين</button><button class="btn" data-act="handovers" data-id="${id}">الاستلام والتسليم</button>
+     ${canFee?`<button class="btn" data-act="feeFor" data-id="${id}">تحصيل رسوم</button>`:""}<button class="btn" data-act="deposits" data-id="${id}">التأمين</button><button class="btn" data-act="handovers" data-id="${id}">الاستلام والتسليم</button><button class="btn" data-act="permit" data-id="${id}">إذن استلام (للحارس)</button>
      ${c.tenant_phone?waBtn(c.tenant_phone,`السلام عليكم أ/ ${c.tenant_name}\n${CO().name}`,"مراسلة واتساب"):""}${lvl("contracts")>=2?`<button class="btn" data-act="renew" data-id="${id}">تجديد العقد</button>`:""}
      ${c.tenant_id?`<button class="btn" data-act="tenant" data-id="${c.tenant_id}">ملف المستأجر</button>`:""}${lvl("contracts")>=3?`<button class="btn" data-act="edit" data-t="contracts" data-id="${id}">تعديل</button>`:""}${lvl("contracts")>=4?`<button class="btn danger" data-act="del" data-t="contracts" data-id="${id}">حذف</button>`:""}</div>`)}
   else if(act==="renew"){closeModal();renewContract(id)}
